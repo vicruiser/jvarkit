@@ -245,7 +245,7 @@ public class BimToVcf extends Launcher
 					
 					}
 				else if(tokens[4].equals("-") && tokens[5].equals("-")) {
-					pos1--;//shift left
+					//pos1--;//shift left
 					String refBase=  String.valueOf(genomic.charAt(pos1-1));
 					a1= Allele.create(refBase,false);
 					ref = Allele.create(refBase+genomic.charAt(pos1),true);
