@@ -21,12 +21,15 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
+
+History:
+* 2014 creation
+
 */
 package com.github.lindenb.jvarkit.tools.misc;
 
 import java.io.BufferedReader;
 import java.nio.file.Path;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
@@ -50,7 +53,6 @@ import htsjdk.variant.vcf.VCFStandardHeaderLines;
 import com.beust.jcommander.Parameter;
 import com.beust.jcommander.ParametersDelegate;
 import com.github.lindenb.jvarkit.lang.CharSplitter;
-import com.github.lindenb.jvarkit.lang.JvarkitException;
 import com.github.lindenb.jvarkit.util.bio.AcidNucleics;
 import com.github.lindenb.jvarkit.util.bio.SequenceDictionaryUtils;
 import com.github.lindenb.jvarkit.util.jcommander.Launcher;
@@ -101,7 +103,7 @@ import com.github.lindenb.jvarkit.variant.variantcontext.writer.WritingVariantsD
 @Program(name="bim2vcf",
 	description="convert a .bim to a .vcf . For @FlorianeS44",
 	keywords= {"bim","vcf"},
-	modificationDate="20200116"
+	modificationDate="20200115"
 )
 public class BimToVcf extends Launcher
 	{
@@ -125,7 +127,6 @@ public class BimToVcf extends Launcher
 		BufferedReader r=null;
 		ReferenceSequenceFile faidx=null;
 		GenomicSequence genomic = null;
-		long number_non_snvs = 0L;
 		try {
 			
 			faidx = ReferenceSequenceFileFactory.getReferenceSequenceFile(this.faidx);
@@ -153,39 +154,51 @@ public class BimToVcf extends Launcher
 			String line;
 			final Predicate<String> iupacATGC = S->AcidNucleics.isATGC(S);
 			
-			final List<String> convertCtg = Arrays.asList(
-					"23", "X",
-					"23", "chrX",
-					"24", "Y",
-					"24", "chrY",
-					"26", "MT",
-					"26", "chrM"
-					);
 			while((line=r.readLine())!=null) {
 				final String tokens[]=tab.split(line);
 				if(tokens.length!=6) {
-					throw new JvarkitException.TokenErrors(6, tokens);
+					LOG.error("expected 6 column in "+line);
+					return -1;
 				}
 				Allele a1=null;
 				Allele a2=null;
 				Allele ref=null;
-				final String contig=tokens[0];
+				String contig=tokens[0];
 			
 				SAMSequenceRecord ssr= null;
 				ssr = dict.getSequence(contig);
-				
-				for(int i=0;ssr==null && i+1< convertCtg.size() ;i+=2) {
-					if(!convertCtg.get(i).equals(contig)) continue;
-					ssr = dict.getSequence(convertCtg.get(i+1));
+				//ugly below !!
+				if(ssr==null && contig.equals("23"))
+					{
+					ssr = dict.getSequence("X");
 					}
-					
+				if(ssr==null && contig.equals("23"))
+					{
+					ssr = dict.getSequence("chrX");
+					}
+				if(ssr==null && contig.equals("24"))
+					{
+					ssr = dict.getSequence("Y");
+					}
+				if(ssr==null && contig.equals("24"))
+					{
+					ssr = dict.getSequence("chrY");
+					}
+				if(ssr==null && contig.equals("26"))
+					{
+					ssr = dict.getSequence("chrM");
+					}
+				if(ssr==null && contig.equals("26"))
+					{
+					ssr = dict.getSequence("MT");
+					}
 				if(ssr==null && contig.equals("25")){
 					LOG.warn("ignoring "+line);
-					++number_non_snvs;
 					continue;
-					}
+				}
 				if(ssr==null){
-					throw new JvarkitException.ContigNotFoundInDictionary(contig,dict);
+					LOG.error("unknown chrom in "+line);
+					return -1;
 					}
 				if(genomic==null || !ssr.getSequenceName().equals(genomic.getChrom())) {
 					genomic=new GenomicSequence(faidx, ssr.getSequenceName());
@@ -200,17 +213,11 @@ public class BimToVcf extends Launcher
 				
 				if(iupacATGC.test(tokens[4]) && iupacATGC.test(tokens[5]))
 					{
-					if(tokens[4].length()!=1 || tokens[5].length()!=-1) {
-						LOG.warn("Skipping "+line+" because I only handle SNVs.");
-						number_non_snvs++;
-						continue;
-						}
-					
 					final String refBase=String.valueOf(genomic.charAt(pos1-1));
 					ref= Allele.create(refBase,true);
 					a1 = refBase.equalsIgnoreCase(tokens[4])?
 							ref:
-							Allele.create(tokens[4],false);
+							Allele.create(tokens[4],false)
 							;
 					a2 = refBase.equalsIgnoreCase(tokens[5])?
 							ref:
@@ -220,10 +227,10 @@ public class BimToVcf extends Launcher
 					if(a1.isReference() && a2.isReference()) {
 						type = "NOVARIATION";
 						}
-					else if(tokens[4].length() < tokens[5].length()) {
+					else if(tokens[4].length() > tokens[5].length()) {
 						type = "INS";
 						}
-					else if(tokens[4].length() > tokens[5].length()) {
+					else if(tokens[4].length() < tokens[5].length()) {
 						type = "DEL";
 						}
 					else
@@ -254,9 +261,8 @@ public class BimToVcf extends Launcher
 					}
 				else
 					{
-					LOG.warn("Skipping "+line+".");
-					number_non_snvs++;
-					continue;
+					LOG.error("not handled: "+line);
+					return -1;
 					}
 				final Set<Allele> alleles = new HashSet<>();
 				alleles.add(ref);
@@ -272,8 +278,7 @@ public class BimToVcf extends Launcher
 				}
 			r.close();r=null;
 			w.close();w=null;
-			if(number_non_snvs>0) LOG.warn("Number lines skipped:"+number_non_snvs);
-			return 0;
+			return RETURN_OK;
 		} catch (final Exception e) {
 			LOG.error(e);
 			return -1;
